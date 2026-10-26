@@ -302,15 +302,17 @@ export async function runArchitect(request: unknown, env: ArchitectEnv): Promise
       feedback = "\n\nReply with raw JSON only, matching the blueprint shape exactly.";
       continue;
     }
-    if (outcome.kind === "failed" && outcome.reason === "empty") {
-      // Empty completions (common with reasoning models under a tight token
-      // budget) get one bounded retry in plain JSON mode.
+    if (outcome.kind === "failed" && (outcome.reason === "empty" || outcome.reason === "invalid")) {
+      // Empty completions and unparseable upstream bodies are the two ways a
+      // malformed free-route provider shows up. Both get one bounded retry in
+      // plain JSON mode, which is the more universally supported shape.
       if (attempt < 2) {
         structured = false;
-        feedback = "\n\nYour previous reply was empty. Reply with the raw JSON blueprint only — no analysis, no fences.";
+        feedback =
+          "\n\nYour previous reply was empty or unreadable. Reply with the raw JSON blueprint only — no analysis, no fences.";
         continue;
       }
-      return { status: 502, body: { ok: false, reason: "empty" } };
+      return { status: 502, body: { ok: false, reason: outcome.reason, detail: outcome.debug } };
     }
     if (outcome.kind === "failed") {
       const status = outcome.reason === "unavailable" ? 503 : outcome.reason === "rate_limited" ? 429 : 502;

@@ -252,13 +252,28 @@ describe("architect core", () => {
     expect(result.body).toMatchObject({ ok: false, reason: "timeout" });
   });
 
-  it("flags empty model responses", async () => {
+  it("retries once after an empty completion, then reports empty", async () => {
     const fetchImpl = vi.fn(async () => openRouterResponse("   "));
     const result = await runArchitect(
       { mode: "generate", prompt: "a frozen observatory" },
       { apiKey: "test-key", fetchImpl: fetchImpl as never },
     );
     expect(result.body).toMatchObject({ ok: false, reason: "empty" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries once when the provider returns an empty HTTP body", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("", { status: 200 }))
+      .mockResolvedValueOnce(openRouterResponse(TUNDRA_BLUEPRINT));
+    const result = await runArchitect(
+      { mode: "generate", prompt: "a frozen observatory" },
+      { apiKey: "test-key", fetchImpl: fetchImpl as never },
+    );
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("never leaks the API key into failure payloads", async () => {
