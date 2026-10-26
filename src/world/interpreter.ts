@@ -130,6 +130,11 @@ const CELESTIAL = {
 
 const PALETTES = { VOLCANIC, FOREST, DESERT, TUNDRA, CELESTIAL };
 
+/** The biome's authored default palette — used as the base for AI-supplied overrides. */
+export function biomePalette(biome: BiomeId): Interpretation["palette"] {
+  return { ...PALETTES[biome.toUpperCase() as keyof typeof PALETTES] };
+}
+
 export function emptyInterpretation(): Interpretation {
   return {
     biome: "volcanic",

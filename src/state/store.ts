@@ -2,6 +2,10 @@ import { create } from "zustand";
 import type { CreationPreferences, WorldEdits, WorldSpec, WorldSummary } from "../world/types";
 import { buildWorld, duplicateWorld, remixWorld } from "../world/builder";
 import { parseExportedWorld, WorldValidationError } from "../world/schema";
+import { fetchArchitectStatus, generateBlueprint, requestRevision } from "../ai/client";
+import { applyBlueprintNarrative, blueprintToInterpretation } from "../world/architect/blueprint";
+import { applyRevision } from "../world/architect/revision";
+import type { ArchitectFailureReason } from "../world/architect/protocol";
 import {
   DEFAULT_PREFERENCES,
   deleteWorld as deleteRecord,
@@ -46,8 +50,27 @@ interface MythosState {
   discoveryMoment: DiscoveryMoment | null;
   lastGeneration: { prompt: string; prefs: CreationPreferences; presetId?: string } | null;
 
+  /** AI World Architect availability, probed from the server route. */
+  aiStatus: "unknown" | "available" | "unavailable";
+  aiModel: string | null;
+  revising: boolean;
+  /** Snapshot enabling a single-level undo of the latest AI revision. */
+  lastRevision: { before: WorldSpec; reply: string } | null;
+
   navigate: (view: View) => void;
   createWorld: (prompt: string, prefs: CreationPreferences, presetId?: string) => WorldSpec;
+  checkAiStatus: () => Promise<void>;
+  /**
+   * AI-assisted creation. On any architect failure this falls back to the
+   * procedural engine and says so via `note` — `method` is always truthful.
+   */
+  createWorldAi: (
+    prompt: string,
+    prefs: CreationPreferences,
+    onStage?: (stage: 0 | 1 | 2) => void,
+  ) => Promise<{ spec: WorldSpec; method: "ai" | "procedural"; note?: string; model?: string }>;
+  reviseCurrent: (instruction: string) => Promise<boolean>;
+  undoRevision: () => void;
   openWorld: (spec: WorldSpec, persist?: boolean) => void;
   updateEdits: (edits: WorldEdits) => void;
   clearEdits: () => void;
@@ -81,6 +104,24 @@ function errorMessage(err: unknown): string {
   return "Something went wrong.";
 }
 
+/** Human-safe phrasing for architect failures; never carries upstream text. */
+function fallbackNote(reason: ArchitectFailureReason): string {
+  switch (reason) {
+    case "unavailable":
+      return "The AI Architect is not configured on this server";
+    case "rate_limited":
+      return "The AI Architect is rate-limited right now";
+    case "timeout":
+      return "The AI Architect took too long to answer";
+    case "empty":
+      return "The AI Architect returned an empty plan";
+    case "invalid":
+      return "The AI Architect's plan failed validation";
+    default:
+      return "The AI Architect could not be reached";
+  }
+}
+
 export const useMythos = create<MythosState>()((set, get) => ({
   view: "atelier",
   current: null,
@@ -94,6 +135,10 @@ export const useMythos = create<MythosState>()((set, get) => ({
   toasts: [],
   discoveryMoment: null,
   lastGeneration: null,
+  aiStatus: "unknown",
+  aiModel: null,
+  revising: false,
+  lastRevision: null,
 
   navigate(view) {
     set({ view });
@@ -103,6 +148,75 @@ export const useMythos = create<MythosState>()((set, get) => ({
     const spec = buildWorld({ prompt, prefs, presetId });
     set({ lastGeneration: { prompt, prefs, presetId } });
     return spec;
+  },
+
+  async checkAiStatus() {
+    const status = await fetchArchitectStatus();
+    set({ aiStatus: status.available ? "available" : "unavailable", aiModel: status.model });
+  },
+
+  async createWorldAi(prompt, prefs, onStage) {
+    onStage?.(0);
+    const result = await generateBlueprint(prompt);
+    if (!result.ok) {
+      const spec = buildWorld({ prompt, prefs: { ...prefs, method: "procedural" } });
+      set({ lastGeneration: { prompt, prefs } });
+      return { spec, method: "procedural" as const, note: fallbackNote(result.reason) };
+    }
+    onStage?.(1);
+    const built = buildWorld({
+      prompt,
+      prefs: { ...prefs, method: "ai" },
+      interpretation: blueprintToInterpretation(result.blueprint),
+      name: result.blueprint.name,
+      description: result.blueprint.summary,
+    });
+    onStage?.(2);
+    const spec = applyBlueprintNarrative(built, result.blueprint);
+    set({ lastGeneration: { prompt, prefs } });
+    return { spec, method: "ai" as const, model: result.model };
+  },
+
+  async reviseCurrent(instruction) {
+    const current = get().current;
+    const trimmed = instruction.trim();
+    if (!current || !trimmed || get().revising) return false;
+    set({ revising: true });
+    try {
+      const result = await requestRevision(trimmed, current);
+      if (!result.ok) {
+        set({ revising: false });
+        get().toast("error", "Revision failed", `${fallbackNote(result.reason)}. The world is unchanged.`);
+        return false;
+      }
+      const next = applyRevision(current, result.revision);
+      set({
+        current: next,
+        dirty: true,
+        revising: false,
+        lastRevision: { before: current, reply: result.revision.reply },
+      });
+      const unsupported = result.revision.unsupported;
+      get().toast(
+        unsupported.length ? "warning" : "success",
+        "World revised",
+        unsupported.length ? `${result.revision.reply} Not possible: ${unsupported.join("; ")}.` : result.revision.reply,
+      );
+      return true;
+    } catch (err) {
+      set({ revising: false });
+      get().toast("error", "Revision failed", `${errorMessage(err)} The world is unchanged.`);
+      return false;
+    }
+  },
+
+  undoRevision() {
+    const last = get().lastRevision;
+    const current = get().current;
+    if (!last || !current) return;
+    // Restore the pre-revision spec but keep anything the visitor has done since.
+    set({ current: { ...last.before, exploration: current.exploration }, dirty: true, lastRevision: null });
+    get().toast("info", "Revision undone", "The world is back to its previous state.");
   },
 
   openWorld(spec, persist = false) {

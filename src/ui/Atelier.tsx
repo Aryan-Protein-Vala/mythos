@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMythos } from "../state/store";
 import { allPresetSpecs } from "../world/sampleWorlds";
 import { remixWorld } from "../world/builder";
@@ -7,8 +7,19 @@ import type { CreationPreferences, WorldSpec } from "../world/types";
 import { Button, IconButton, Segmented, Tag } from "./components";
 import { WorldThumb } from "./Thumbnail";
 import { Wordmark } from "./Wordmark";
+import { GenerationOverlay } from "./GenerationOverlay";
 import { Icon } from "./icons";
 import { formatWhen } from "./format";
+
+type Engine = "procedural" | "ai";
+
+const ENGINE_OPTIONS: Array<{ value: Engine; label: string }> = [
+  { value: "procedural", label: "Procedural" },
+  { value: "ai", label: "AI Architect" },
+];
+
+/** Truthful AI stages — no fabricated percentages, one row per real step. */
+const AI_STAGES = ["Interpreting the world", "Planning the environment", "Validating the blueprint"];
 
 const SCALE_OPTIONS: Array<{ value: CreationPreferences["scale"]; label: string }> = [
   { value: "intimate", label: "Intimate" },
@@ -26,22 +37,37 @@ const ATMOSPHERE_OPTIONS: Array<{ value: CreationPreferences["atmosphere"]; labe
 
 export function Atelier({ onOpenSettings }: { onOpenSettings: () => void }) {
   const createWorld = useMythos((s) => s.createWorld);
+  const createWorldAi = useMythos((s) => s.createWorldAi);
   const openWorld = useMythos((s) => s.openWorld);
   const navigate = useMythos((s) => s.navigate);
   const library = useMythos((s) => s.library);
   const toast = useMythos((s) => s.toast);
+  const aiStatus = useMythos((s) => s.aiStatus);
+  const aiModel = useMythos((s) => s.aiModel);
+  const checkAiStatus = useMythos((s) => s.checkAiStatus);
 
   const [prompt, setPrompt] = useState("");
   const [scale, setScale] = useState<CreationPreferences["scale"]>("grand");
   const [atmosphere, setAtmosphere] = useState<CreationPreferences["atmosphere"]>("inherit");
+  const [engine, setEngine] = useState<Engine>("procedural");
   const [advanced, setAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [aiStage, setAiStage] = useState<number | null>(null);
 
   const samples = useMemo(() => allPresetSpecs(), []);
   const recent = library.slice(0, 4);
 
-  const submit = () => {
+  useEffect(() => {
+    if (aiStatus === "unknown") void checkAiStatus();
+  }, [aiStatus, checkAiStatus]);
+
+  // If the probe comes back negative while AI is selected, drop to procedural.
+  useEffect(() => {
+    if (aiStatus === "unavailable" && engine === "ai") setEngine("procedural");
+  }, [aiStatus, engine]);
+
+  const submit = async () => {
     const trimmed = prompt.trim();
     if (trimmed.length < 8) {
       setError("Write at least a sentence — a place, a structure, a quality of light.");
@@ -49,6 +75,23 @@ export function Atelier({ onOpenSettings }: { onOpenSettings: () => void }) {
     }
     setError(null);
     setSubmitting(true);
+
+    if (engine === "ai") {
+      setAiStage(0);
+      try {
+        const result = await createWorldAi(trimmed, { scale, atmosphere, method: "ai" }, setAiStage);
+        if (result.method === "procedural" && result.note) {
+          toast("warning", "Generated procedurally", `${result.note} — the local engine built the world instead.`);
+        }
+        openWorld(result.spec);
+      } catch (err) {
+        setSubmitting(false);
+        setAiStage(null);
+        setError(err instanceof Error ? err.message : "The world could not be generated.");
+      }
+      return;
+    }
+
     try {
       const spec = createWorld(trimmed, { scale, atmosphere, method: "procedural" });
       openWorld(spec);
@@ -158,6 +201,16 @@ export function Atelier({ onOpenSettings }: { onOpenSettings: () => void }) {
 
           <div className="atelier__controls">
             <div className="control">
+              <span className="control__label">Engine</span>
+              <Segmented
+                options={aiStatus === "unavailable" ? [ENGINE_OPTIONS[0]] : ENGINE_OPTIONS}
+                value={engine}
+                onChange={setEngine}
+                ariaLabel="Generation engine"
+                size="sm"
+              />
+            </div>
+            <div className="control">
               <span className="control__label">World scale</span>
               <Segmented options={SCALE_OPTIONS} value={scale} onChange={setScale} ariaLabel="World scale" size="sm" />
             </div>
@@ -185,14 +238,23 @@ export function Atelier({ onOpenSettings }: { onOpenSettings: () => void }) {
             </button>
           </div>
 
+          {aiStatus === "unavailable" ? (
+            <p className="atelier__ai-note">
+              <Icon name="info" size={13} />
+              The AI Architect is not configured on this server (OPENROUTER_API_KEY). Procedural generation
+              remains fully available.
+            </p>
+          ) : null}
+
           {advanced ? (
             <div className="advanced">
               <div className="advanced__row">
                 <span className="advanced__label">Generation method</span>
-                <Tag tone="accent">Procedural engine</Tag>
+                <Tag tone="accent">{engine === "ai" ? `AI Architect · ${aiModel ?? "openrouter/free"}` : "Procedural engine"}</Tag>
                 <span className="advanced__note">
-                  Deterministic and local. Model-assisted generation is not configured in this build, so
-                  these worlds never call an external service.
+                  {engine === "ai"
+                    ? "Your description is planned by an external model, validated against the world schema, then built by the local engine. The API key never leaves the server."
+                    : "Deterministic and local. These worlds never call an external service."}
                 </span>
               </div>
               <div className="advanced__row">
@@ -209,9 +271,18 @@ export function Atelier({ onOpenSettings }: { onOpenSettings: () => void }) {
               Create world
             </Button>
             <span className="atelier__assurance">
-              <Icon name="globe" size={14} /> Runs entirely on this device · no API key
+              <Icon name="globe" size={14} />{" "}
+              {engine === "ai" ? "Planned via OpenRouter · built on this device" : "Runs entirely on this device · no API key"}
             </span>
           </div>
+
+          {aiStage !== null ? (
+            <GenerationOverlay
+              stage={aiStage}
+              stages={AI_STAGES}
+              note="Planned by the AI World Architect · validated blueprint · built locally"
+            />
+          ) : null}
 
           {recent.length > 0 ? (
             <div className="recent">

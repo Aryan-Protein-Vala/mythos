@@ -3,3 +3,9 @@ dist/
 .vercel/
 *.tsbuildinfo
 .DS_Store
+
+# Local secrets — never commit API keys
+.env
+.env.local
+.env.*.local
+!.env.example

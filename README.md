@@ -22,6 +22,7 @@ Built for the **Openfire Hackathon**.
 **Dream it**
 
 - Natural-language prompts compile into a typed, zod-validated world spec — every world is fully serializable
+- **AI World Architect (optional)**: an OpenRouter-backed planner turns your description into a structured blueprint — biome, palette, scale, landmarks, discoveries, events — which the same procedural engine then builds. No key? The procedural engine runs everything, unchanged
 - Three curated presets to start from: *The Obsidian Palace* (volcanic eclipse), *The Forgotten Grove* (forest mist), *The Last Frontier* (desert observatory)
 - Seeded procedural generation — terrain, architecture, vegetation, sky, water, and narrative all derive from the same deterministic seed
 
@@ -34,6 +35,7 @@ Built for the **Openfire Hackathon**.
 **Keep it**
 
 - Live editor: time of day, stone tone, fog and water colour, sun position — cheap uniform edits apply in ~0.3 ms, structural edits rebuild only what changed
+- Natural-language revision: *"make it colder and foggier"* re-plans the atmosphere through the architect, validates the result, and keeps your discoveries — with one-level undo
 - Library persistence in IndexedDB with rendered thumbnails, rename, duplicate, remix
 - Export / import worlds as portable `.mythos.json` files
 
@@ -108,14 +110,39 @@ npm run typecheck  # strict tsc, zero errors
 
 ```mermaid
 flowchart LR
-    A["Natural-language prompt"] --> B["interpretPrompt"]
-    B --> C["applyPreferences"]
-    C --> D["buildWorld<br/><sub>layout + narrative</sub>"]
+    A["Natural-language prompt"] --> M{"Engine"}
+    M -->|Procedural| B["interpretPrompt<br/><sub>keyword rules</sub>"]
+    M -->|AI Architect| AI["/api/architect<br/><sub>OpenRouter → blueprint<br/>validated + clamped</sub>"]
+    AI -->|any failure| B
+    B --> D["buildWorld<br/><sub>layout + narrative</sub>"]
+    AI --> D
     D --> E["parseWorld<br/><sub>zod validation</sub>"]
     E --> F["resolveWorld<br/><sub>live edits applied</sub>"]
     F --> G["assembleWorld<br/><sub>terrain · sky · water ·<br/>architecture · nature · fx</sub>"]
     G --> H["An explorable world"]
 ```
+
+## AI World Architect
+
+The architect is an **optional planning stage**. The model never touches the renderer and never emits geometry, code, URLs or shaders — it produces a small *blueprint* (biome, palette, atmosphere, scale, landmark prose, discovery text, event text) that is validated, clamped and fed into the exact same `buildWorld` pipeline the keyword interpreter uses.
+
+**Enable it**
+
+```bash
+cp .env.example .env.local   # fill in your OpenRouter key
+npm run dev                  # the Vite dev middleware serves /api/architect
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY` | — | Server-side credential. Never in browser code, storage, exports or error payloads |
+| `OPENROUTER_MODEL` | `openrouter/free` | Model id routed by OpenRouter |
+
+For production, set the same variables in your Vercel project settings — `api/architect.ts` deploys as a serverless function next to the static app, no extra backend required. On a static-only host the architect simply reports itself unavailable and the AI controls disappear; procedural generation is unaffected.
+
+**Reliability ladder** (at most two model calls per request): structured JSON-schema output → JSON-only retry with validation feedback → honest failure. Rate limits, timeouts, empty and invalid responses all degrade to procedural generation with a visible note. Every world carries a truthful `generation.method` tag — `AI Architect` or `Procedural` — in the world view.
+
+**Honest limits**: the architect plans within the engine's vocabulary. It chooses themes, palettes, scale, atmosphere and the written layer; placement and geometry come from the engine's deterministic building blocks. Revisions are limited to the same parameters the live editor exposes — a request the engine cannot represent (say, a brand-new bridge between two specific towers) is reported in the reply as unsupported, not faked.
 
 The spec is the product: everything the renderer draws comes from one declarative, versioned document (`SCHEMA_VERSION 3`). Edits, exports, saves, and remixes are all transformations of that document.
 

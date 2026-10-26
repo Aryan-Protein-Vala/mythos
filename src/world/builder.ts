@@ -1115,6 +1115,14 @@ export interface BuildRequest {
   name?: string;
   id?: string;
   now?: number;
+  /**
+   * Pre-computed intent, e.g. from the AI World Architect. When present the
+   * keyword interpreter is skipped; everything downstream (layouts, palettes,
+   * narrative, validation) runs unchanged.
+   */
+  interpretation?: Interpretation;
+  /** Authored description override; defaults to the derived mood text. */
+  description?: string;
 }
 
 export function buildWorld(req: BuildRequest): WorldSpec {
@@ -1123,8 +1131,12 @@ export function buildWorld(req: BuildRequest): WorldSpec {
   const prompt = (req.prompt || preset?.prompt || "").trim();
   const prefs: CreationPreferences = req.prefs ?? { scale: "grand", atmosphere: "inherit", method: "procedural" };
 
-  const base = interpretPrompt(prompt);
-  const i = preset ? applyPreferences(interpretPrompt(`${prompt} ${preset.prompt}`), prefs) : applyPreferences(base, prefs);
+  const base = req.interpretation ?? interpretPrompt(prompt);
+  const i = req.interpretation
+    ? applyPreferences(req.interpretation, prefs)
+    : preset
+      ? applyPreferences(interpretPrompt(`${prompt} ${preset.prompt}`), prefs)
+      : applyPreferences(base, prefs);
 
   // Presets nudge the interpretation to guarantee their authored identity.
   if (preset?.id === "obsidian-palace") {
@@ -1207,7 +1219,7 @@ export function buildWorld(req: BuildRequest): WorldSpec {
     layout.spawnSurface ?? Math.max(wetSampler.heightAt(layout.spawn.x, layout.spawn.z), waterLevel) + 1.7;
 
   const name = req.name?.trim() || preset?.name || deriveName(prompt, i.biome);
-  const description = preset?.description ?? describe(prompt, i);
+  const description = req.description?.trim() || preset?.description || describe(prompt, i);
 
   const spec: WorldSpec = {
     schemaVersion: SCHEMA_VERSION,
@@ -1306,7 +1318,9 @@ export function remixWorld(spec: WorldSpec, now = Date.now()): WorldSpec {
     prefs: {
       scale: spec.generation.scale,
       atmosphere: "inherit",
-      method: spec.generation.method,
+      // A remix re-interprets the prompt locally, so the result is procedural
+      // regardless of how the original was planned.
+      method: "procedural",
     },
     id: `w_${hashString(`${spec.name}:${now}:remix`).toString(36)}`,
   });
