@@ -29,8 +29,15 @@ import { REVISION_JSON_SCHEMA, revisionSchema, type WorldRevision } from "../wor
 
 export const DEFAULT_MODEL = "openrouter/free";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-// Two bounded attempts must fit inside the function's 60 s budget.
-const REQUEST_TIMEOUT_MS = 25_000;
+/**
+ * Free-route reasoning models can take 20–40 s to produce a blueprint, and the
+ * provider sends its 200 headers before the body finishes streaming. A single
+ * per-attempt timeout would then abort mid-body. Instead: one deadline for the
+ * whole request, capped per attempt, staying inside the 60 s function budget.
+ */
+const TOTAL_BUDGET_MS = 55_000;
+const PER_ATTEMPT_MS = 40_000;
+const MIN_ATTEMPT_MS = 4_000;
 const MAX_PROMPT_CHARS = 1200;
 const MAX_REVISION_CHARS = 600;
 
@@ -127,6 +134,7 @@ interface CallOptions {
   model: string;
   apiKey: string;
   fetchImpl: typeof fetch;
+  timeoutMs: number;
 }
 
 type CallOutcome =
@@ -165,7 +173,7 @@ async function callOpenRouter(opts: CallOptions): Promise<CallOutcome> {
         "x-title": "MYTHOS World Architect",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(opts.timeoutMs),
     });
   } catch (err) {
     const aborted = err instanceof DOMException && err.name === "AbortError";
@@ -178,7 +186,15 @@ async function callOpenRouter(opts: CallOptions): Promise<CallOutcome> {
   if (res.status === 401 || res.status === 403) return { kind: "failed", reason: "unavailable" };
   if (!res.ok) return { kind: "failed", reason: "provider_error" };
 
-  const raw = await res.text().catch(() => "");
+  // A body read can abort when the deadline lands while the provider is still
+  // streaming — that is a timeout, not an empty answer. Never swallow it.
+  let raw: string;
+  try {
+    raw = await res.text();
+  } catch {
+    return { kind: "failed", reason: "timeout" };
+  }
+
   let payload: unknown;
   try {
     payload = JSON.parse(raw);
@@ -285,7 +301,12 @@ export async function runArchitect(request: unknown, env: ArchitectEnv): Promise
   let structured = true;
   let feedback = "";
   let lastIssues = "";
+  const deadline = Date.now() + TOTAL_BUDGET_MS;
   for (let attempt = 1; attempt <= 2; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining < MIN_ATTEMPT_MS) {
+      return { status: 504, body: { ok: false, reason: "timeout" } };
+    }
     const outcome = await callOpenRouter({
       structured,
       jsonSchema,
@@ -294,6 +315,7 @@ export async function runArchitect(request: unknown, env: ArchitectEnv): Promise
       model,
       apiKey,
       fetchImpl,
+      timeoutMs: Math.min(PER_ATTEMPT_MS, remaining),
     });
 
     if (outcome.kind === "unsupported") {
@@ -315,7 +337,14 @@ export async function runArchitect(request: unknown, env: ArchitectEnv): Promise
       return { status: 502, body: { ok: false, reason: outcome.reason, detail: outcome.debug } };
     }
     if (outcome.kind === "failed") {
-      const status = outcome.reason === "unavailable" ? 503 : outcome.reason === "rate_limited" ? 429 : 502;
+      const status =
+        outcome.reason === "unavailable"
+          ? 503
+          : outcome.reason === "rate_limited"
+            ? 429
+            : outcome.reason === "timeout"
+              ? 504
+              : 502;
       return { status, body: { ok: false, reason: outcome.reason, detail: outcome.debug } };
     }
 

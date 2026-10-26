@@ -252,6 +252,24 @@ describe("architect core", () => {
     expect(result.body).toMatchObject({ ok: false, reason: "timeout" });
   });
 
+  it("classifies a body read aborted by the deadline as a timeout", async () => {
+    const aborted = {
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      text: async () => {
+        throw new DOMException("aborted", "AbortError");
+      },
+    } as unknown as Response;
+    const fetchImpl = vi.fn(async () => aborted);
+    const result = await runArchitect(
+      { mode: "generate", prompt: "a frozen observatory" },
+      { apiKey: "test-key", fetchImpl: fetchImpl as never },
+    );
+    expect(result.status).toBe(504);
+    expect(result.body).toMatchObject({ ok: false, reason: "timeout" });
+  });
+
   it("retries once after an empty completion, then reports empty", async () => {
     const fetchImpl = vi.fn(async () => openRouterResponse("   "));
     const result = await runArchitect(
