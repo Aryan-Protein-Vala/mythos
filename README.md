@@ -142,6 +142,8 @@ For production, set the same variables in your Vercel project settings — `api/
 
 **Reliability ladder** (at most two model calls per request): structured JSON-schema output → JSON-only retry with validation feedback → honest failure. Rate limits, timeouts, empty and invalid responses all degrade to procedural generation with a visible note. Every world carries a truthful `generation.method` tag — `AI Architect` or `Procedural` — in the world view.
 
+> **Free-tier latency.** `openrouter/free` routes each request to a different free model, and some of those are reasoning models that take 40–60 s per plan. That is the main cause of an occasional fallback. If you want consistently fast AI planning, point `OPENROUTER_MODEL` at one specific fast free model (options rotate — check `https://openrouter.ai/models?max_price=0`) or add credit and use a small paid instruct model. The pipeline behaves identically either way.
+
 **Honest limits**: the architect plans within the engine's vocabulary. It chooses themes, palettes, scale, atmosphere and the written layer; placement and geometry come from the engine's deterministic building blocks. Revisions are limited to the same parameters the live editor exposes — a request the engine cannot represent (say, a brand-new bridge between two specific towers) is reported in the reply as unsupported, not faked.
 
 The spec is the product: everything the renderer draws comes from one declarative, versioned document (`SCHEMA_VERSION 3`). Edits, exports, saves, and remixes are all transformations of that document.
