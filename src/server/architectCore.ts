@@ -36,7 +36,9 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
  * whole request, capped per attempt, staying inside the 60 s function budget.
  */
 const TOTAL_BUDGET_MS = 55_000;
-const PER_ATTEMPT_MS = 40_000;
+// A slow-but-successful generation should not be cut short: the first attempt
+// may use almost the whole budget. Fast failures still leave room to retry.
+const PER_ATTEMPT_MS = 48_000;
 const MIN_ATTEMPT_MS = 4_000;
 const MAX_PROMPT_CHARS = 1200;
 const MAX_REVISION_CHARS = 600;
