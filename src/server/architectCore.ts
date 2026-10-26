@@ -151,12 +151,14 @@ async function callOpenRouter(opts: CallOptions): Promise<CallOutcome> {
     model: opts.model,
     messages,
     temperature: 0.7,
-    // Generous headroom: `openrouter/free` can route to reasoning models that
-    // spend tokens on hidden reasoning before answering — too small a budget
-    // yields empty content. Reasoning exclusion is a hint; providers that do
-    // not honour it simply ignore it.
-    max_tokens: 6000,
+    // Enough headroom for reasoning models (which can spend tokens thinking
+    // before answering) without asking for a long generation. Reasoning
+    // exclusion is a hint; providers that do not honour it ignore it.
+    max_tokens: 4500,
     reasoning: { exclude: true },
+    // Prefer the fastest provider for this model: free-route latency is the
+    // main cause of timeouts.
+    provider: { sort: "throughput" },
   };
   if (opts.structured) {
     body.response_format = { type: "json_schema", json_schema: opts.jsonSchema };
