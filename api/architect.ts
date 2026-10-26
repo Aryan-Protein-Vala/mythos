@@ -9,7 +9,7 @@
  * the same core. No web framework is introduced on purpose.
  */
 
-import { architectStatus, runArchitect } from "../src/server/architectCore";
+import { architectStatus, runArchitect } from "../src/server/architectCore.js";
 
 /* Minimal structural types — avoids a hard dependency on @vercel/node while
    staying compatible with the Node runtime's request/response objects. */

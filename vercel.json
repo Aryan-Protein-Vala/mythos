@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/architect.ts": {
+      "maxDuration": 60
+    }
+  }
+}

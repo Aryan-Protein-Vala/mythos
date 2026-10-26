@@ -13,8 +13,8 @@
  */
 
 import { z } from "zod";
-import { parseWorld } from "../schema";
-import type { WorldEdits, WorldSpec } from "../types";
+import { parseWorld } from "../schema.js";
+import type { WorldEdits, WorldSpec } from "../types.js";
 
 const clampNum = (min: number, max: number) => (v: number) => Math.min(max, Math.max(min, v));
 const trimmed = (max: number) => (v: string) => v.trim().replace(/\s+/g, " ").slice(0, max);

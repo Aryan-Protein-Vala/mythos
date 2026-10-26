@@ -4,8 +4,8 @@
  * middleware, the browser client and the tests.
  */
 
-import type { WorldBlueprint } from "./blueprint";
-import type { RevisionContext, WorldRevision } from "./revision";
+import type { WorldBlueprint } from "./blueprint.js";
+import type { RevisionContext, WorldRevision } from "./revision.js";
 
 export interface ArchitectGenerateRequest {
   mode: "generate";

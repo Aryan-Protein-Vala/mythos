@@ -1,4 +1,4 @@
-import { Rng } from "./rng";
+import { Rng } from "./rng.js";
 
 /**
  * Seeded 2D value-noise with fbm. Deterministic for a given seed and world

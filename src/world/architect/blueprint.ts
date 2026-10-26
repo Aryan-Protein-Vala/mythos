@@ -17,9 +17,9 @@
  */
 
 import { z } from "zod";
-import { biomePalette, emptyInterpretation, type Interpretation } from "../interpreter";
-import { parseWorld } from "../schema";
-import type { WorldSpec } from "../types";
+import { biomePalette, emptyInterpretation, type Interpretation } from "../interpreter.js";
+import { parseWorld } from "../schema.js";
+import type { WorldSpec } from "../types.js";
 
 /* ------------------------------------------------------------------ */
 /*  Clamping helpers                                                   */

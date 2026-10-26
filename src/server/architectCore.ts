@@ -19,17 +19,18 @@
  * falls back to procedural generation, which stays fully operational.
  */
 
-import { BLUEPRINT_JSON_SCHEMA, blueprintSchema, type WorldBlueprint } from "../world/architect/blueprint";
+import { BLUEPRINT_JSON_SCHEMA, blueprintSchema, type WorldBlueprint } from "../world/architect/blueprint.js";
 import type {
   ArchitectFailure,
   ArchitectFailureReason,
   ArchitectStatus,
-} from "../world/architect/protocol";
-import { REVISION_JSON_SCHEMA, revisionSchema, type WorldRevision } from "../world/architect/revision";
+} from "../world/architect/protocol.js";
+import { REVISION_JSON_SCHEMA, revisionSchema, type WorldRevision } from "../world/architect/revision.js";
 
 export const DEFAULT_MODEL = "openrouter/free";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const REQUEST_TIMEOUT_MS = 30_000;
+// Two bounded attempts must fit inside the function's 60 s budget.
+const REQUEST_TIMEOUT_MS = 25_000;
 const MAX_PROMPT_CHARS = 1200;
 const MAX_REVISION_CHARS = 600;
 

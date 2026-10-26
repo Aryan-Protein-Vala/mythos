@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { SCHEMA_VERSION, type WorldSpec } from "./types";
-import { clamp } from "./noise";
+import { SCHEMA_VERSION, type WorldSpec } from "./types.js";
+import { clamp } from "./noise.js";
 
 export class WorldValidationError extends Error {
   readonly issues: string[];
